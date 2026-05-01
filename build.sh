@@ -2,7 +2,7 @@
 set -e
 
 DOCS_SRC="/docs"
-OUTPUT_DIR="/usr/share/nginx/html"
+OUTPUT_DIR="/htmls"
 
 mkdir -p "$OUTPUT_DIR"
 
