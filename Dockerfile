@@ -12,7 +12,7 @@ RUN npm install -g mermaid-filter
 # Work directory for markdown docs
 WORKDIR /docs
 
-COPY dock-builder/build.sh /build.sh
+COPY doc-builder/build.sh /build.sh
 
 RUN chmod +x /build.sh
 
