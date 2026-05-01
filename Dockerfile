@@ -3,7 +3,7 @@
 # ==========================================
 FROM pandoc/latex:latest AS builder
 
-RUN apk add --no-cache nodejs npm bash
+RUN apk add --no-cache nodejs npm bash findutils coreutils
 
 # Install mermaid filter
 RUN npm install -g mermaid-filter
