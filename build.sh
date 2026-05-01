@@ -28,6 +28,14 @@ body { font-family:"Times New Roman",serif;font-size:16px;line-height:1.8;text-a
 .mermaid{text-align:center;}
 </style>'
 
+# --- Copy text files (csv, json, yml) ignoring panel/ ---
+while read -r txt_file; do
+  rel="${txt_file#$DOCS_SRC/}"
+  out_dir="$OUTPUT_DIR/$(dirname "$rel")"
+  mkdir -p "$out_dir"
+  cp "$txt_file" "$OUTPUT_DIR/$rel"
+done < <(find "$DOCS_SRC" -type f \( -name "*.csv" -o -name "*.json" -o -name "*.yml" \) -not -path "*/panel/*")
+
 # --- Build index.html skeleton ---
 cat >"$OUTPUT_DIR/index.html" <<'EOF'
 <!DOCTYPE html>
@@ -65,23 +73,34 @@ EOF
 DOC_LIST="["
 FIRST=true
 
-# --- Convert each Markdown file ---
-find "$DOCS_SRC" -type f -name "*.md" | sort | while read -r file; do
-  [[ "$file" == *_fa.md ]] && continue # skip Persian first
+# --- Convert each Markdown file ignoring panel/ ---
+while read -r file; do
+  # skip Persian files (both _fa and -fa) during the primary iteration
+  [[ "$file" == *_fa.md || "$file" == *-fa.md ]] && continue 
+  
   rel="${file#$DOCS_SRC/}"
   out="$OUTPUT_DIR/${rel%.md}.html"
   mkdir -p "$(dirname "$out")"
 
-  fa_file="${file%.md}_fa.md"
   has_fa=false
+  fa_file=""
   fa_rel=""
 
-  if [ -f "$fa_file" ]; then
+  # Check for both naming conventions
+  if [ -f "${file%.md}_fa.md" ]; then
     has_fa=true
+    fa_file="${file%.md}_fa.md"
+  elif [ -f "${file%.md}-fa.md" ]; then
+    has_fa=true
+    fa_file="${file%.md}-fa.md"
+  fi
+
+  if [ "$has_fa" = true ]; then
     fa_rel="${fa_file#$DOCS_SRC/}"
     fa_out="$OUTPUT_DIR/${fa_rel%.md}.html"
     mkdir -p "$(dirname "$fa_out")"
-    # Build RTL version exactly like your manual command
+    
+    # Build RTL version
     pandoc "$fa_file" -o "$fa_out" $PANDOC_OPTS \
       -V dir=rtl -V header-includes="$RTL_STYLE"
   fi
@@ -98,9 +117,13 @@ find "$DOCS_SRC" -type f -name "*.md" | sort | while read -r file; do
   [ "$FIRST" = true ] || DOC_LIST+=","
   FIRST=false
   DOC_LIST+="{\"name\":\"${rel%.md}\",\"path\":\"${rel%.md}.html\",\"hasFA\":$has_fa,\"faPath\":\"${fa_rel%.md}.html\"}"
-done
+
+done < <(find "$DOCS_SRC" -type f -name "*.md" -not -path "*/panel/*" | sort)
 
 DOC_LIST+="]"
 sed -i "s|DOC_LIST_PLACEHOLDER|$DOC_LIST|" "$OUTPUT_DIR/index.html"
 
 echo "✅ Documentation built successfully at $OUTPUT_DIR"
+
+# Start Nginx in the foreground
+exec nginx -g "daemon off;"

@@ -17,4 +17,4 @@ COPY doc-builder/build.sh /build.sh
 RUN chmod +x /build.sh
 
 EXPOSE 80
-CMD ["/bin/bash", "-c", "/build.sh && nginx -g 'daemon off;'"]
+CMD ["/bin/bash", "-c", "/build.sh"]
