@@ -10,15 +10,26 @@ export OUTPUT_DIR="${OUTPUT_DIR%/}"
 
 mkdir -p "$OUTPUT_DIR"
 
-# Use exactly the same Pandoc flags you use by hand.
+# Create a native Lua filter to convert mermaid code blocks into HTML divs.
+# This entirely replaces the Node.js mermaid-filter and renders perfect SVGs client-side,
+# solving all resolution, clipping, and Puppeteer sandbox issues natively.
+cat > mermaid-filter.lua <<'EOF'
+function CodeBlock(block)
+  if block.classes[1] == "mermaid" then
+    return pandoc.RawBlock("html", '<div class="mermaid">\n' .. block.text .. '\n</div>')
+  end
+end
+EOF
+
+# Use exactly the same Pandoc flags you use by hand, swapped to the Lua filter.
 # -s                produce standalone HTML with head/body
 # -f markdown+hard_line_breaks preserve markdown hard line breaks
-# --filter mermaid-filter render Mermaid diagrams
-# --verbose forces Pandoc to output errors explicitly
-export PANDOC_OPTS="-s -f markdown+hard_line_breaks --filter mermaid-filter --verbose"
+# --lua-filter      injects our dynamic SVG mermaid pipeline
+# --verbose         forces Pandoc to output errors explicitly
+export PANDOC_OPTS="-s -f markdown+hard_line_breaks --lua-filter mermaid-filter.lua --verbose"
 
 # Styling added for Inline Code, Codeblocks, Tables, and Vazirmatn Font
-# Using Vazirmatn-Regular.woff2 from CDN for the Persian unicode ranges
+# Plus the Mermaid.js ESM import to render vector SVGs automatically
 export RTL_STYLE='<style>
 @font-face {
     font-family: "MixedFont";
@@ -34,8 +45,10 @@ body { text-align: justify; font-family: "MixedFont", serif; font-size: 16px; li
 ol { list-style-type: persian; margin-right: 20px; }
 ul { margin-right: 20px; }
 h1, h2, h3, h4, h5, h6 { text-align: right; }
-.mermaid { direction: ltr; text-align: center; }
-.mermaid img { max-width: 100%; height: auto; } /* Prevents high-res diagrams from overflowing */
+
+/* Mermaid infinite resolution SVG rendering */
+.mermaid { direction: ltr; text-align: center; overflow-x: auto; margin: 20px 0; }
+.mermaid svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
 
 /* Table formatting */
 table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; margin: 20px 0; }
@@ -49,13 +62,19 @@ code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-fam
 pre { background-color: #f6f8fa; border: 1px solid #d0d7de; padding: 16px; border-radius: 8px; overflow-x: auto; direction: ltr; white-space: pre; word-wrap: normal; }
 /* Reset inline code styling inside codeblocks */
 pre code { background-color: transparent; padding: 0; color: inherit; display: inline; border-radius: 0; }
-</style>'
+</style>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: "default" });
+</script>'
 
 export LTR_STYLE='<style>
 body { font-family: "Times New Roman", serif; font-size: 16px; line-height: 1.8; text-align: justify; direction: ltr; }
 h1, h2, h3, h4, h5, h6 { text-align: left; }
-.mermaid { text-align: center; }
-.mermaid img { max-width: 100%; height: auto; }
+
+/* Mermaid infinite resolution SVG rendering */
+.mermaid { text-align: center; overflow-x: auto; margin: 20px 0; }
+.mermaid svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
 
 /* Table formatting */
 table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; margin: 20px 0; }
@@ -69,24 +88,15 @@ code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-fam
 pre { background-color: #f6f8fa; border: 1px solid #d0d7de; padding: 16px; border-radius: 8px; overflow-x: auto; white-space: pre; word-wrap: normal; }
 /* Reset inline code styling inside codeblocks */
 pre code { background-color: transparent; padding: 0; color: inherit; border-radius: 0; }
-</style>'
+</style>
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: true, theme: "default" });
+</script>'
 
-# Create a Puppeteer config to instruct mermaid-filter to generate high-res (3x) images
-# AND allow it to run as root in Docker
-cat > .puppeteer.json <<'EOF'
-{
-  "args": ["--no-sandbox", "--disable-setuid-sandbox"],
-  "defaultViewport": {
-    "width": 800,
-    "height": 600,
-    "deviceScaleFactor": 3
-  }
-}
-EOF
-
-# Set up automatic cleanup of temporary configurations to safely run even on failures
+# Set up automatic cleanup of temporary files to safely run even on failures
 FILE_LIST=$(mktemp)
-trap 'rm -f .puppeteer.json "$FILE_LIST"' EXIT
+trap 'rm -f "$FILE_LIST" mermaid-filter.lua' EXIT
 
 # =========================================================
 # AWK PREPROCESSOR: Fix missing empty lines before lists & tables
@@ -322,7 +332,7 @@ while read -r base_path; do
     has_fa=true
     fa_rel="${rel_base}-fa.html"
   fi
-  
+
   [ "$FIRST" = true ] || DOC_LIST+=","
   FIRST=false
   
