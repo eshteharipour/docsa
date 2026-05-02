@@ -2,9 +2,9 @@ services:
   docs:
     build:
       context: ..
-      dockerfile: doc-builder/Dockerfile
+      dockerfile: docsa/Dockerfile
     ports:
       - "127.0.0.1:3001:80"
     volumes:
-      - ../doc-builder/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../docsa/nginx.conf:/etc/nginx/nginx.conf:ro
     restart: unless-stopped

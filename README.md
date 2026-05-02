@@ -31,7 +31,7 @@ To utilize the **Automatic Language Toggle**, follow this naming convention:
 │   ├── overview_fa.md    # RTL (Persian) version (or overview-fa.md)
 │   ├── api.md            # Will render as English only
 │   └── setup_fa.md       # Will render as Persian only
-├── doc-builder/
+├── docsa/
 │   ├── build.sh
 │   ├── Dockerfile
 │   └── nginx.conf

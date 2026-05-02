@@ -26,7 +26,7 @@ RUN npm install -g mermaid-filter
 
 WORKDIR /docs
 
-COPY doc-builder/build.sh /build.sh
+COPY docsa/build.sh /build.sh
 RUN chmod +x /build.sh
 
 COPY ./docs/ /docs/
