@@ -81,5 +81,4 @@ How does it manage to perfectly format BiDi text where other tools fail?
 
 ## 🔒 Security
 
-*   The Nginx config blocks access to any folder named `/panel/` by default.
 *   Puppeteer is safely configured to run in Docker using headless Chromium without `setuid` sandbox constraints, preventing build-time crashes.
