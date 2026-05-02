@@ -151,27 +151,32 @@ build_markdown() {
   # Added -o pipefail so errors inside pipes don't get swallowed
   set -exo pipefail
   
-  file="$1"
-  rel="${file#$DOCS_SRC/}"
-  out="$OUTPUT_DIR/${rel%.md}.html"
-  mkdir -p "$(dirname "$out")"
+  # Argument $1 is now the "base_path" (e.g., /docs/proposal/logserver)
+  base_path="$1"
+  rel_base="${base_path#$DOCS_SRC/}"
+  
+  en_file="${base_path}.md"
+  en_out="$OUTPUT_DIR/${rel_base}.html"
+
+  has_en=false
+  [[ -f "$en_file" ]] && has_en=true
 
   has_fa=false
   fa_file=""
-  fa_rel=""
-
-  # Check for both naming conventions
-  if [ -f "${file%.md}_fa.md" ]; then
+  fa_out=""
+  
+  if [[ -f "${base_path}_fa.md" ]]; then
     has_fa=true
-    fa_file="${file%.md}_fa.md"
-  elif [ -f "${file%.md}-fa.md" ]; then
+    fa_file="${base_path}_fa.md"
+    fa_out="$OUTPUT_DIR/${rel_base}_fa.html"
+  elif [[ -f "${base_path}-fa.md" ]]; then
     has_fa=true
-    fa_file="${file%.md}-fa.md"
+    fa_file="${base_path}-fa.md"
+    fa_out="$OUTPUT_DIR/${rel_base}-fa.html"
   fi
 
-  if [ "$has_fa" = true ]; then
-    fa_rel="${fa_file#$DOCS_SRC/}"
-    fa_out="$OUTPUT_DIR/${fa_rel%.md}.html"
+  # 1. Build Persian version (if exists)
+  if [[ "$has_fa" == true ]]; then
     mkdir -p "$(dirname "$fa_out")"
     
     # Preprocess Persian Markdown (inject missing empty lines)
@@ -181,71 +186,87 @@ build_markdown() {
     # Build RTL version from temporary preprocessed file
     pandoc "$temp_fa" -o "$fa_out" $PANDOC_OPTS \
       -V dir=rtl -V header-includes="$RTL_STYLE"
-      
+
     rm -f "$temp_fa"
 
     # Convert .md links to .html in the generated RTL HTML
     sed -i -E 's/href="([^"#]+)\.md(#.*)?"/href="\1.html\2"/g' "$fa_out"
   fi
 
-  # Preprocess English Markdown (inject missing empty lines)
-  temp_en=$(mktemp)
-  awk "$PREPROCESS_AWK" "$file" > "$temp_en"
+  # 2. Build English version (if exists)
+  if [[ "$has_en" == true ]]; then
+    mkdir -p "$(dirname "$en_out")"
+    
+    temp_en=$(mktemp)
+    awk "$PREPROCESS_AWK" "$en_file" > "$temp_en"
 
   # Build English version from temporary preprocessed file
-  pandoc "$temp_en" -o "$out" $PANDOC_OPTS -V header-includes="$LTR_STYLE"
-  
-  rm -f "$temp_en"
-
+    pandoc "$temp_en" -o "$en_out" $PANDOC_OPTS -V header-includes="$LTR_STYLE"
+    rm -f "$temp_en"
   # Convert .md links to .html in the generated LTR HTML
-  sed -i -E 's/href="([^"#]+)\.md(#.*)?"/href="\1.html\2"/g' "$out"
+    sed -i -E 's/href="([^"#]+)\.md(#.*)?"/href="\1.html\2"/g' "$en_out"
+  fi
 
-  # Insert bidirectional language links
-  if [ "$has_fa" = true ]; then
-    # Fix duplication by only using the file's basename
-    fa_basename=$(basename "${fa_rel%.md}.html")
-    en_basename=$(basename "${rel%.md}.html")
+  # 3. Insert bidirectional language links ONLY if both exist
+  if [[ "$has_fa" == true && "$has_en" == true ]]; then
+    fa_basename=$(basename "$fa_out")
+    en_basename=$(basename "$en_out")
 
     # Appending the language toggle div right after body tag using the extracted basenames
-    sed -i '/<body>/a <div style="position:fixed;top:10px;right:10px;background:#f0f0f0;padding:5px;border-radius:5px;z-index:9999;"><a href="'"$fa_basename"'">فارسی</a></div>' "$out"
+    sed -i '/<body>/a <div style="position:fixed;top:10px;right:10px;background:#f0f0f0;padding:5px;border-radius:5px;z-index:9999;"><a href="'"$fa_basename"'">فارسی</a></div>' "$en_out"
     sed -i '/<body>/a <div style="position:fixed;top:10px;left:10px;background:#f0f0f0;padding:5px;border-radius:5px;z-index:9999;"><a href="'"$en_basename"'">English</a></div>' "$fa_out"
   fi
   
-  echo "✔ Built: $rel"
+  echo "✔ Built base: $rel_base"
 }
-# Export the function so xargs can use it in subshells
 export -f build_markdown
 
 # =========================================================
 # GATHER FILES AND BUILD THE INDEX LIST
 # =========================================================
-DOC_LIST="["
-FIRST=true
 FILE_LIST=$(mktemp)
 
+# 1. Extract a unique list of "Base Paths" (ignoring -fa, _fa, and .md extensions)
 while read -r file; do
-  # skip Persian files during primary iteration
-  [[ "$file" == *_fa.md || "$file" == *-fa.md ]] && continue 
+  base="${file%.md}"
+  base="${base%_fa}"
+  base="${base%-fa}"
+  echo "$base"
+done < <(find "$DOCS_SRC" -type f -name "*.md" -not -path "*/panel/*") | sort -u > "$FILE_LIST"
+
+
+# 2. Iterate over base paths to generate the JSON index list
+DOC_LIST="["
+FIRST=true
+
+while read -r base_path; do
+  rel_base="${base_path#$DOCS_SRC/}"
   
-  # Save the English file to our temporary list for parallel processing later
-  echo "$file" >> "$FILE_LIST"
+  has_en=false
+  [[ -f "${base_path}.md" ]] && has_en=true
   
-  rel="${file#$DOCS_SRC/}"
   has_fa=false
   fa_rel=""
-
-  if [ -f "${file%.md}_fa.md" ]; then
+  
+  if [[ -f "${base_path}_fa.md" ]]; then
     has_fa=true
-    fa_rel="${rel%.md}_fa.md"
-  elif [ -f "${file%.md}-fa.md" ]; then
+    fa_rel="${rel_base}_fa.html"
+  elif [[ -f "${base_path}-fa.md" ]]; then
     has_fa=true
-    fa_rel="${rel%.md}-fa.md"
+    fa_rel="${rel_base}-fa.html"
   fi
-
+  
   [ "$FIRST" = true ] || DOC_LIST+=","
   FIRST=false
-  DOC_LIST+="{\"name\":\"${rel%.md}\",\"path\":\"${rel%.md}.html\",\"hasFA\":$has_fa,\"faPath\":\"${fa_rel%.md}.html\"}"
-done < <(find "$DOCS_SRC" -type f -name "*.md" -not -path "*/panel/*" | sort)
+  
+  if [[ "$has_en" == true ]]; then
+    # Standard Doc (English, with optional FA twin)
+    DOC_LIST+="{\"name\":\"$rel_base\",\"path\":\"${rel_base}.html\",\"hasFA\":$has_fa,\"faPath\":\"$fa_rel\"}"
+  elif [[ "$has_fa" == true ]]; then
+    # Standalone Persian Doc
+    DOC_LIST+="{\"name\":\"$rel_base (FA Only)\",\"path\":\"$fa_rel\",\"hasFA\":false,\"faPath\":\"\"}"
+  fi
+done < "$FILE_LIST"
 
 DOC_LIST+="]"
 sed -i "s|DOC_LIST_PLACEHOLDER|$DOC_LIST|" "$OUTPUT_DIR/index.html"
