@@ -17,7 +17,7 @@ mkdir -p "$OUTPUT_DIR"
 # --verbose forces Pandoc to output errors explicitly
 export PANDOC_OPTS="-s -f markdown+hard_line_breaks --filter mermaid-filter --verbose"
 
-# Styling added for Inline Code, Codeblocks, and Vazirmatn Font
+# Styling added for Inline Code, Codeblocks, Tables, and Vazirmatn Font
 # Using Vazirmatn-Regular.woff2 from CDN for the Persian unicode ranges
 export RTL_STYLE='<style>
 @font-face {
@@ -37,23 +37,36 @@ h1, h2, h3, h4, h5, h6 { text-align: right; }
 .mermaid { direction: ltr; text-align: center; }
 .mermaid img { max-width: 100%; height: auto; } /* Prevents high-res diagrams from overflowing */
 
+/* Table formatting */
+table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; margin: 20px 0; }
+table th, table td { border: 1px solid #d0d7de; padding: 10px 14px; }
+table th { background-color: #f6f8fa; font-weight: bold; }
+table tr:nth-child(even) { background-color: #fbfbfb; }
+
 /* Inline code formatting */
 code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.95em; color: #d14; direction: ltr; display: inline-block; }
 /* Codeblock formatting */
-pre { background-color: #f6f8fa; border: 1px solid #d0d7de; padding: 16px; border-radius: 8px; overflow-x: auto; direction: ltr; }
+pre { background-color: #f6f8fa; border: 1px solid #d0d7de; padding: 16px; border-radius: 8px; overflow-x: auto; direction: ltr; white-space: pre; word-wrap: normal; }
 /* Reset inline code styling inside codeblocks */
 pre code { background-color: transparent; padding: 0; color: inherit; display: inline; border-radius: 0; }
 </style>'
 
 export LTR_STYLE='<style>
 body { font-family: "Times New Roman", serif; font-size: 16px; line-height: 1.8; text-align: justify; direction: ltr; }
+h1, h2, h3, h4, h5, h6 { text-align: left; }
 .mermaid { text-align: center; }
 .mermaid img { max-width: 100%; height: auto; }
+
+/* Table formatting */
+table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; margin: 20px 0; }
+table th, table td { border: 1px solid #d0d7de; padding: 10px 14px; }
+table th { background-color: #f6f8fa; font-weight: bold; }
+table tr:nth-child(even) { background-color: #fbfbfb; }
 
 /* Inline code formatting */
 code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.95em; color: #d14; }
 /* Codeblock formatting */
-pre { background-color: #f6f8fa; border: 1px solid #d0d7de; padding: 16px; border-radius: 8px; overflow-x: auto; }
+pre { background-color: #f6f8fa; border: 1px solid #d0d7de; padding: 16px; border-radius: 8px; overflow-x: auto; white-space: pre; word-wrap: normal; }
 /* Reset inline code styling inside codeblocks */
 pre code { background-color: transparent; padding: 0; color: inherit; border-radius: 0; }
 </style>'
@@ -76,38 +89,84 @@ FILE_LIST=$(mktemp)
 trap 'rm -f .puppeteer.json "$FILE_LIST"' EXIT
 
 # =========================================================
-# AWK PREPROCESSOR: Fix missing empty lines before lists
+# AWK PREPROCESSOR: Fix missing empty lines before lists & tables
+# Includes rigorous array-based table look-ahead + Persian translation
 # =========================================================
 export PREPROCESS_AWK='
-BEGIN { prev_line = ""; prev_was_list = 0; in_code = 0; in_yaml = 0 }
-{
-    # Toggle YAML frontmatter state
-    if (NR == 1 && $0 ~ /^---[ \t]*$/) { in_yaml = 1 }
-    else if (in_yaml && $0 ~ /^---[ \t]*$/) { in_yaml = 0 }
-    
-    # Toggle Code Block state
-    if ($0 ~ /^[ \t]*```/ || $0 ~ /^[ \t]*~~~/) { in_code = !in_code }
-    
-    is_list = 0
-    # Only evaluate for lists if we are outside of YAML headers and Code blocks
-    if (!in_code && !in_yaml) {
-        # POSIX safe regex for detecting lists (English & Persian)
-        if (match($0, /^[ \t]*([-*+]|[0-9]+[.)]|[۰۱۲۳۴۵۶۷۸۹]+[.)])[ \t]+/)) {
-            is_list = 1
+BEGIN { in_yaml = 0; in_code = 0; prev_was_list = 0; prev_was_table = 0 }
+{ lines[NR] = $0 }
+END {
+    for (i = 1; i <= NR; i++) {
+        # Toggle YAML frontmatter state
+        if (i == 1 && lines[i] ~ /^---[ \t]*$/) { in_yaml = 1 }
+        else if (in_yaml && lines[i] ~ /^---[ \t]*$/) { in_yaml = 0 }
+        
+        # Toggle Code Block state
+        if (lines[i] ~ /^[ \t]*```/ || lines[i] ~ /^[ \t]*~~~/) { in_code = !in_code }
+        
+        is_list = 0
+        is_table = 0
+        
+        # Only evaluate for lists and tables if outside of YAML and Code blocks
+        if (!in_code && !in_yaml) {
+            # List detection (English & Persian numerals)
+            if (match(lines[i], /^[ \t]*([-*+]|[0-9]+[.)]|[۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩]+[.)])[ \t]+/)) {
+                is_list = 1
+            }
+            
+            # Rigorous Table detection
+            # A valid markdown table separator line explicitly made of spaces, hyphens, pipes, and colons
+            is_next_sep = (i < NR && lines[i+1] ~ /^[ \t|:-]+$/ && lines[i+1] ~ /\|/ && lines[i+1] ~ /-/)
+            curr_is_sep = (lines[i] ~ /^[ \t|:-]+$/ && lines[i] ~ /\|/ && lines[i] ~ /-/)
+            
+            if (lines[i] ~ /\|/ && is_next_sep) {
+                is_table = 1
+            } else if (prev_was_table && (curr_is_sep || lines[i] ~ /\|/)) {
+                is_table = 1
+            }
+        }
+        
+        is_prev_empty = (i == 1 || lines[i-1] ~ /^[ \t]*$/)
+        is_prev_header = (i > 1 && lines[i-1] ~ /^[ \t]*#+/)
+        
+        # Insert empty line if: current is list/table + prev was normal text
+        if (is_list && !is_prev_empty && !is_prev_header && !prev_was_list) {
+            print ""
+        }
+        if (is_table && !is_prev_empty && !is_prev_header && !prev_was_table) {
+            print ""
+        }
+        
+        # In order for Pandoc to natively recognize Persian-enumerated lists, 
+        # we convert the marker (and ONLY the marker) to Western Arabic [0-9].
+        if (is_list) {
+            if (match(lines[i], /^[ \t]*[۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩]+[.)][ \t]+/)) {
+                marker = substr(lines[i], RSTART, RLENGTH)
+                gsub(/۰/, "0", marker); gsub(/۱/, "1", marker); gsub(/۲/, "2", marker)
+                gsub(/۳/, "3", marker); gsub(/۴/, "4", marker); gsub(/۵/, "5", marker)
+                gsub(/۶/, "6", marker); gsub(/۷/, "7", marker); gsub(/۸/, "8", marker)
+                gsub(/۹/, "9", marker)
+                
+                gsub(/٠/, "0", marker); gsub(/١/, "1", marker); gsub(/٢/, "2", marker)
+                gsub(/٣/, "3", marker); gsub(/٤/, "4", marker); gsub(/٥/, "5", marker)
+                gsub(/٦/, "6", marker); gsub(/٧/, "7", marker); gsub(/٨/, "8", marker)
+                gsub(/٩/, "9", marker)
+                
+                lines[i] = marker substr(lines[i], RSTART + RLENGTH)
+            }
+        }
+        
+        print lines[i]
+        
+        # Reset continuity state if an empty line is encountered
+        if (lines[i] ~ /^[ \t]*$/) {
+            prev_was_list = 0
+            prev_was_table = 0
+        } else {
+            prev_was_list = is_list
+            prev_was_table = is_table
         }
     }
-    
-    is_prev_empty = (prev_line ~ /^[ \t]*$/)
-    is_prev_header = (prev_line ~ /^[ \t]*#+/)
-    
-    # Insert empty line if: current is list + prev was normal text
-    if (is_list && !is_prev_empty && !is_prev_header && !prev_was_list) {
-        print ""
-    }
-    
-    print $0
-    prev_line = $0
-    prev_was_list = is_list
 }
 '
 
@@ -189,7 +248,7 @@ build_markdown() {
   if [[ "$has_fa" == true ]]; then
     mkdir -p "$(dirname "$fa_out")"
     
-    # Preprocess Persian Markdown (inject missing empty lines)
+    # Preprocess Persian Markdown (inject missing empty lines & parse numeric lists)
     temp_fa=$(mktemp)
     awk "$PREPROCESS_AWK" "$fa_file" > "$temp_fa"
 
