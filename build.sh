@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -eo pipefail
 
 export DOCS_SRC="/docs"
 export OUTPUT_DIR="/htmls"
@@ -69,6 +69,10 @@ cat > .puppeteer.json <<'EOF'
 }
 EOF
 
+# Set up automatic cleanup of temporary configurations to safely run even on failures
+FILE_LIST=$(mktemp)
+trap 'rm -f .puppeteer.json "$FILE_LIST"' EXIT
+
 # =========================================================
 # AWK PREPROCESSOR: Fix missing empty lines before lists
 # =========================================================
@@ -105,13 +109,13 @@ BEGIN { prev_line = ""; prev_was_list = 0; in_code = 0; in_yaml = 0 }
 }
 '
 
-# --- Copy text files using robust 'prune' to safely skip 'panel' directories ---
+# --- Copy text files (.csv, .json, .yml) safely ---
 while read -r txt_file; do
   rel="${txt_file#$DOCS_SRC/}"
   out_dir="$OUTPUT_DIR/$(dirname "$rel")"
   mkdir -p "$out_dir"
   cp "$txt_file" "$OUTPUT_DIR/$rel"
-done < <(find "$DOCS_SRC" -name panel -type d -prune -o -type f \( -name "*.csv" -o -name "*.json" -o -name "*.yml" \) -print)
+done < <(find "$DOCS_SRC" -type f \( -name "*.csv" -o -name "*.json" -o -name "*.yml" \) -print)
 
 # --- Build index.html skeleton ---
 cat >"$OUTPUT_DIR/index.html" <<'EOF'
@@ -228,16 +232,14 @@ export -f build_markdown
 # =========================================================
 # GATHER FILES AND BUILD THE INDEX LIST
 # =========================================================
-FILE_LIST=$(mktemp)
 
 # Extract a unique list of "Base Paths" (ignoring -fa, _fa, and .md extensions)
-# Use -prune to safely skip any directory literally named 'panel'
 while read -r file; do
   base="${file%.md}"
   base="${base%_fa}"
   base="${base%-fa}"
   echo "$base"
-done < <(find "$DOCS_SRC" -name panel -type d -prune -o -type f -name "*.md" -print) | sort -u > "$FILE_LIST"
+done < <(find "$DOCS_SRC" -type f -name "*.md" -print) | sort -u > "$FILE_LIST"
 
 # Iterate over base paths to generate the JSON index list
 DOC_LIST="["
@@ -283,9 +285,6 @@ echo "Starting multi-core Pandoc build..."
 # Read the file list and pass it to xargs. 
 # -P $(nproc) runs one process per CPU core.
 # Using -t on xargs to print the command before executing
-cat "$FILE_LIST" | xargs -t -I {} -P $(nproc) bash -c 'build_markdown "{}" || exit 255'
-
-# Clean up temporary configuration files
-rm -f .puppeteer.json "$FILE_LIST"
+cat "$FILE_LIST" | xargs -t -I {} -P $(nproc) bash -c 'build_markdown "{}"'
 
 echo "✅ Documentation built successfully at $OUTPUT_DIR"
