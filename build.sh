@@ -234,7 +234,7 @@ while read -r file; do
   has_fa=false
   fa_rel=""
 
-  if[ -f "${file%.md}_fa.md" ]; then
+  if [ -f "${file%.md}_fa.md" ]; then
     has_fa=true
     fa_rel="${rel%.md}_fa.md"
   elif [ -f "${file%.md}-fa.md" ]; then
