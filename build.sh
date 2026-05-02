@@ -4,6 +4,10 @@ set -e
 export DOCS_SRC="/docs"
 export OUTPUT_DIR="/htmls"
 
+# Safety: Strip any accidental trailing slashes so path math never breaks
+export DOCS_SRC="${DOCS_SRC%/}"
+export OUTPUT_DIR="${OUTPUT_DIR%/}"
+
 mkdir -p "$OUTPUT_DIR"
 
 # Use exactly the same Pandoc flags you use by hand.
@@ -81,7 +85,7 @@ BEGIN { prev_line = ""; prev_was_list = 0; in_code = 0; in_yaml = 0 }
     is_list = 0
     # Only evaluate for lists if we are outside of YAML headers and Code blocks
     if (!in_code && !in_yaml) {
-        # Match Unordered (-, *, +) and Ordered (1., 2), ۱., ۲)) lists with space after
+        # POSIX safe regex for detecting lists (English & Persian)
         if (match($0, /^[ \t]*([-*+]|[0-9]+[\.\)]|[۰۱۲۳۴۵۶۷۸۹]+[\.\)])[ \t]+/)) {
             is_list = 1
         }
@@ -101,13 +105,13 @@ BEGIN { prev_line = ""; prev_was_list = 0; in_code = 0; in_yaml = 0 }
 }
 '
 
-# --- Copy text files (csv, json, yml) ignoring panel/ ---
+# --- Copy text files using robust 'prune' to safely skip 'panel' directories ---
 while read -r txt_file; do
   rel="${txt_file#$DOCS_SRC/}"
   out_dir="$OUTPUT_DIR/$(dirname "$rel")"
   mkdir -p "$out_dir"
   cp "$txt_file" "$OUTPUT_DIR/$rel"
-done < <(find "$DOCS_SRC" -type f \( -name "*.csv" -o -name "*.json" -o -name "*.yml" \) -not -path "*/panel/*")
+done < <(find "$DOCS_SRC" -name panel -type d -prune -o -type f \( -name "*.csv" -o -name "*.json" -o -name "*.yml" \) -print)
 
 # --- Build index.html skeleton ---
 cat >"$OUTPUT_DIR/index.html" <<'EOF'
@@ -226,16 +230,16 @@ export -f build_markdown
 # =========================================================
 FILE_LIST=$(mktemp)
 
-# 1. Extract a unique list of "Base Paths" (ignoring -fa, _fa, and .md extensions)
+# Extract a unique list of "Base Paths" (ignoring -fa, _fa, and .md extensions)
+# Use -prune to safely skip any directory literally named 'panel'
 while read -r file; do
   base="${file%.md}"
   base="${base%_fa}"
   base="${base%-fa}"
   echo "$base"
-done < <(find "$DOCS_SRC" -type f -name "*.md" -not -path "*/panel/*") | sort -u > "$FILE_LIST"
+done < <(find "$DOCS_SRC" -name panel -type d -prune -o -type f -name "*.md" -print) | sort -u > "$FILE_LIST"
 
-
-# 2. Iterate over base paths to generate the JSON index list
+# Iterate over base paths to generate the JSON index list
 DOC_LIST="["
 FIRST=true
 
