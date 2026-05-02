@@ -73,6 +73,7 @@ EOF
 # DEFINE THE PARALLEL BUILD FUNCTION
 # =========================================================
 build_markdown() {
+  set -e
   file="$1"
   rel="${file#$DOCS_SRC/}"
   out="$OUTPUT_DIR/${rel%.md}.html"
@@ -156,6 +157,6 @@ echo "Starting multi-core Pandoc build..."
 
 # Read the file list and pass it to xargs. 
 # -P $(nproc) runs one process per CPU core.
-cat "$FILE_LIST" | xargs -I {} -P $(nproc) bash -c 'build_markdown "{}"'
+cat "$FILE_LIST" | xargs -I {} -P $(nproc) bash -c 'build_markdown "{}" || exit 255'
 
 echo "✅ Documentation built successfully at $OUTPUT_DIR"
