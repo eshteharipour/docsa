@@ -86,7 +86,7 @@ BEGIN { prev_line = ""; prev_was_list = 0; in_code = 0; in_yaml = 0 }
     # Only evaluate for lists if we are outside of YAML headers and Code blocks
     if (!in_code && !in_yaml) {
         # POSIX safe regex for detecting lists (English & Persian)
-        if (match($0, /^[ \t]*([-*+]|[0-9]+[\.\)]|[۰۱۲۳۴۵۶۷۸۹]+[\.\)])[ \t]+/)) {
+        if (match($0, /^[ \t]*([-*+]|[0-9]+[.)]|[۰۱۲۳۴۵۶۷۸۹]+[.)])[ \t]+/)) {
             is_list = 1
         }
     }
