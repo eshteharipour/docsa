@@ -10,7 +10,8 @@ mkdir -p "$OUTPUT_DIR"
 # -s                produce standalone HTML with head/body
 # -f markdown+hard_line_breaks preserve markdown hard line breaks
 # --filter mermaid-filter render Mermaid diagrams
-export PANDOC_OPTS="-s -f markdown+hard_line_breaks --filter mermaid-filter"
+# Added --verbose to force Pandoc to output errors explicitly so you can see why it fails.
+export PANDOC_OPTS="-s -f markdown+hard_line_breaks --filter mermaid-filter --verbose"
 
 export RTL_STYLE='<style>
 @font-face { font-family: "MixedFont"; src: local("Times New Roman"); unicode-range: U+0000-00FF; }
@@ -73,7 +74,10 @@ EOF
 # DEFINE THE PARALLEL BUILD FUNCTION
 # =========================================================
 build_markdown() {
-  set -e
+  # Added -x to print each executed command and its arguments to stderr
+  # Added -o pipefail so errors inside pipes don't get swallowed
+  set -exo pipefail
+  
   file="$1"
   rel="${file#$DOCS_SRC/}"
   out="$OUTPUT_DIR/${rel%.md}.html"
@@ -100,10 +104,16 @@ build_markdown() {
     # Build RTL version
     pandoc "$fa_file" -o "$fa_out" $PANDOC_OPTS \
       -V dir=rtl -V header-includes="$RTL_STYLE"
+      
+    # Convert .md links to .html in the generated RTL HTML
+    sed -i -E 's/href="([^"#]+)\.md(#.*)?"/href="\1.html\2"/g' "$fa_out"
   fi
 
   # Build English version
   pandoc "$file" -o "$out" $PANDOC_OPTS -V header-includes="$LTR_STYLE"
+  
+  # Convert .md links to .html in the generated LTR HTML
+  sed -i -E 's/href="([^"#]+)\.md(#.*)?"/href="\1.html\2"/g' "$out"
 
   # Insert bidirectional language links
   if [ "$has_fa" = true ]; then
@@ -157,6 +167,7 @@ echo "Starting multi-core Pandoc build..."
 
 # Read the file list and pass it to xargs. 
 # -P $(nproc) runs one process per CPU core.
-cat "$FILE_LIST" | xargs -I {} -P $(nproc) bash -c 'build_markdown "{}" || exit 255'
+# Using -t on xargs to print the command before executing
+cat "$FILE_LIST" | xargs -t -I {} -P $(nproc) bash -c 'build_markdown "{}" || exit 255'
 
 echo "✅ Documentation built successfully at $OUTPUT_DIR"
