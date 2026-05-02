@@ -10,10 +10,10 @@ mkdir -p "$OUTPUT_DIR"
 # -s                produce standalone HTML with head/body
 # -f markdown+hard_line_breaks preserve markdown hard line breaks
 # --filter mermaid-filter render Mermaid diagrams
-# Added --verbose to force Pandoc to output errors explicitly
+# --verbose forces Pandoc to output errors explicitly
 export PANDOC_OPTS="-s -f markdown+hard_line_breaks --filter mermaid-filter --verbose"
 
-# 1. & 5. Styling added for Inline Code, Codeblocks, and Vazirmatn Font
+# Styling added for Inline Code, Codeblocks, and Vazirmatn Font
 # Using Vazirmatn-Regular.woff2 from CDN for the Persian unicode ranges
 export RTL_STYLE='<style>
 @font-face {
@@ -54,7 +54,7 @@ pre { background-color: #f6f8fa; border: 1px solid #d0d7de; padding: 16px; borde
 pre code { background-color: transparent; padding: 0; color: inherit; border-radius: 0; }
 </style>'
 
-# 3. Create a Puppeteer config to instruct mermaid-filter to generate high-res (3x) images
+# Create a Puppeteer config to instruct mermaid-filter to generate high-res (3x) images
 cat > .puppeteer.json <<'EOF'
 {
   "defaultViewport": {
@@ -64,6 +64,42 @@ cat > .puppeteer.json <<'EOF'
   }
 }
 EOF
+
+# =========================================================
+# AWK PREPROCESSOR: Fix missing empty lines before lists
+# =========================================================
+export PREPROCESS_AWK='
+BEGIN { prev_line = ""; prev_was_list = 0; in_code = 0; in_yaml = 0 }
+{
+    # Toggle YAML frontmatter state
+    if (NR == 1 && $0 ~ /^---[ \t]*$/) { in_yaml = 1 }
+    else if (in_yaml && $0 ~ /^---[ \t]*$/) { in_yaml = 0 }
+    
+    # Toggle Code Block state
+    if ($0 ~ /^[ \t]*```/ || $0 ~ /^[ \t]*~~~/) { in_code = !in_code }
+    
+    is_list = 0
+    # Only evaluate for lists if we are outside of YAML headers and Code blocks
+    if (!in_code && !in_yaml) {
+        # Match Unordered (-, *, +) and Ordered (1., 2), ۱., ۲)) lists with space after
+        if (match($0, /^[ \t]*([-*+]|[0-9]+[\.\)]|[۰۱۲۳۴۵۶۷۸۹]+[\.\)])[ \t]+/)) {
+            is_list = 1
+        }
+    }
+    
+    is_prev_empty = (prev_line ~ /^[ \t]*$/)
+    is_prev_header = (prev_line ~ /^[ \t]*#+/)
+    
+    # Insert empty line if: current is list + prev was normal text
+    if (is_list && !is_prev_empty && !is_prev_header && !prev_was_list) {
+        print ""
+    }
+    
+    print $0
+    prev_line = $0
+    prev_was_list = is_list
+}
+'
 
 # --- Copy text files (csv, json, yml) ignoring panel/ ---
 while read -r txt_file; do
@@ -125,7 +161,7 @@ build_markdown() {
   fa_rel=""
 
   # Check for both naming conventions
-  if[ -f "${file%.md}_fa.md" ]; then
+  if [ -f "${file%.md}_fa.md" ]; then
     has_fa=true
     fa_file="${file%.md}_fa.md"
   elif [ -f "${file%.md}-fa.md" ]; then
@@ -138,21 +174,33 @@ build_markdown() {
     fa_out="$OUTPUT_DIR/${fa_rel%.md}.html"
     mkdir -p "$(dirname "$fa_out")"
     
-    # Build RTL version
-    pandoc "$fa_file" -o "$fa_out" $PANDOC_OPTS \
+    # Preprocess Persian Markdown (inject missing empty lines)
+    temp_fa=$(mktemp)
+    awk "$PREPROCESS_AWK" "$fa_file" > "$temp_fa"
+
+    # Build RTL version from temporary preprocessed file
+    pandoc "$temp_fa" -o "$fa_out" $PANDOC_OPTS \
       -V dir=rtl -V header-includes="$RTL_STYLE"
       
+    rm -f "$temp_fa"
+
     # Convert .md links to .html in the generated RTL HTML
     sed -i -E 's/href="([^"#]+)\.md(#.*)?"/href="\1.html\2"/g' "$fa_out"
   fi
 
-  # Build English version
-  pandoc "$file" -o "$out" $PANDOC_OPTS -V header-includes="$LTR_STYLE"
+  # Preprocess English Markdown (inject missing empty lines)
+  temp_en=$(mktemp)
+  awk "$PREPROCESS_AWK" "$file" > "$temp_en"
+
+  # Build English version from temporary preprocessed file
+  pandoc "$temp_en" -o "$out" $PANDOC_OPTS -V header-includes="$LTR_STYLE"
   
+  rm -f "$temp_en"
+
   # Convert .md links to .html in the generated LTR HTML
   sed -i -E 's/href="([^"#]+)\.md(#.*)?"/href="\1.html\2"/g' "$out"
 
-  # 4. Insert bidirectional language links
+  # Insert bidirectional language links
   if [ "$has_fa" = true ]; then
     # Fix duplication by only using the file's basename
     fa_basename=$(basename "${fa_rel%.md}.html")
@@ -189,7 +237,7 @@ while read -r file; do
   if[ -f "${file%.md}_fa.md" ]; then
     has_fa=true
     fa_rel="${rel%.md}_fa.md"
-  elif[ -f "${file%.md}-fa.md" ]; then
+  elif [ -f "${file%.md}-fa.md" ]; then
     has_fa=true
     fa_rel="${rel%.md}-fa.md"
   fi
