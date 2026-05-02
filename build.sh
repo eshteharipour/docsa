@@ -59,8 +59,10 @@ pre code { background-color: transparent; padding: 0; color: inherit; border-rad
 </style>'
 
 # Create a Puppeteer config to instruct mermaid-filter to generate high-res (3x) images
+# AND allow it to run as root in Docker
 cat > .puppeteer.json <<'EOF'
 {
+  "args": ["--no-sandbox", "--disable-setuid-sandbox"],
   "defaultViewport": {
     "width": 800,
     "height": 600,

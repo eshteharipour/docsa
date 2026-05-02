@@ -32,7 +32,8 @@ RUN chmod +x /build.sh
 COPY ./docs/ /docs/
 
 # Create a Puppeteer config file so Chrome can run as root without sandboxing issues
-RUN echo '{"args": ["--no-sandbox", "--disable-setuid-sandbox"]}' > /docs/.puppeteer.json
+# Handled in build.sh
+# RUN echo '{"args": ["--no-sandbox", "--disable-setuid-sandbox"]}' > /docs/.puppeteer.json
 
 # Override the default Pandoc entrypoint to run the build script.
 ENTRYPOINT ["/bin/bash"]
