@@ -10,23 +10,60 @@ mkdir -p "$OUTPUT_DIR"
 # -s                produce standalone HTML with head/body
 # -f markdown+hard_line_breaks preserve markdown hard line breaks
 # --filter mermaid-filter render Mermaid diagrams
-# Added --verbose to force Pandoc to output errors explicitly so you can see why it fails.
+# Added --verbose to force Pandoc to output errors explicitly
 export PANDOC_OPTS="-s -f markdown+hard_line_breaks --filter mermaid-filter --verbose"
 
+# 1. & 5. Styling added for Inline Code, Codeblocks, and Vazirmatn Font
+# Using Vazirmatn-Regular.woff2 from CDN for the Persian unicode ranges
 export RTL_STYLE='<style>
-@font-face { font-family: "MixedFont"; src: local("Times New Roman"); unicode-range: U+0000-00FF; }
-@font-face { font-family: "MixedFont"; src: local("B Nazanin"); unicode-range: U+0600-06FF, U+FB50-FDFF, U+FE70-FEFF; }
+@font-face {
+    font-family: "MixedFont";
+    src: local("Times New Roman");
+    unicode-range: U+0000-00FF;
+}
+@font-face {
+    font-family: "MixedFont";
+    src: url("https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.0.0/fonts/webfonts/Vazirmatn-Regular.woff2") format("woff2");
+    unicode-range: U+0600-06FF, U+FB50-FDFF, U+FE70-FEFF;
+}
 body { text-align: justify; font-family: "MixedFont", serif; font-size: 16px; line-height: 1.8; direction: rtl; }
 ol { list-style-type: persian; margin-right: 20px; }
 ul { margin-right: 20px; }
-h1,h2,h3,h4,h5,h6 { text-align: right; }
-.mermaid { direction:ltr;text-align:center; }
+h1, h2, h3, h4, h5, h6 { text-align: right; }
+.mermaid { direction: ltr; text-align: center; }
+.mermaid img { max-width: 100%; height: auto; } /* Prevents high-res diagrams from overflowing */
+
+/* Inline code formatting */
+code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.95em; color: #d14; direction: ltr; display: inline-block; }
+/* Codeblock formatting */
+pre { background-color: #f6f8fa; border: 1px solid #d0d7de; padding: 16px; border-radius: 8px; overflow-x: auto; direction: ltr; }
+/* Reset inline code styling inside codeblocks */
+pre code { background-color: transparent; padding: 0; color: inherit; display: inline; border-radius: 0; }
 </style>'
 
 export LTR_STYLE='<style>
-body { font-family:"Times New Roman",serif;font-size:16px;line-height:1.8;text-align:justify;direction:ltr; }
-.mermaid{text-align:center;}
+body { font-family: "Times New Roman", serif; font-size: 16px; line-height: 1.8; text-align: justify; direction: ltr; }
+.mermaid { text-align: center; }
+.mermaid img { max-width: 100%; height: auto; }
+
+/* Inline code formatting */
+code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.95em; color: #d14; }
+/* Codeblock formatting */
+pre { background-color: #f6f8fa; border: 1px solid #d0d7de; padding: 16px; border-radius: 8px; overflow-x: auto; }
+/* Reset inline code styling inside codeblocks */
+pre code { background-color: transparent; padding: 0; color: inherit; border-radius: 0; }
 </style>'
+
+# 3. Create a Puppeteer config to instruct mermaid-filter to generate high-res (3x) images
+cat > .puppeteer.json <<'EOF'
+{
+  "defaultViewport": {
+    "width": 800,
+    "height": 600,
+    "deviceScaleFactor": 3
+  }
+}
+EOF
 
 # --- Copy text files (csv, json, yml) ignoring panel/ ---
 while read -r txt_file; do
@@ -88,7 +125,7 @@ build_markdown() {
   fa_rel=""
 
   # Check for both naming conventions
-  if [ -f "${file%.md}_fa.md" ]; then
+  if[ -f "${file%.md}_fa.md" ]; then
     has_fa=true
     fa_file="${file%.md}_fa.md"
   elif [ -f "${file%.md}-fa.md" ]; then
@@ -115,10 +152,15 @@ build_markdown() {
   # Convert .md links to .html in the generated LTR HTML
   sed -i -E 's/href="([^"#]+)\.md(#.*)?"/href="\1.html\2"/g' "$out"
 
-  # Insert bidirectional language links
+  # 4. Insert bidirectional language links
   if [ "$has_fa" = true ]; then
-    sed -i '/<body>/a <div style="position:fixed;top:10px;right:10px;background:#f0f0f0;padding:5px;border-radius:5px;"><a href="'"${fa_rel%.md}.html"'">فارسی</a></div>' "$out"
-    sed -i '/<body>/a <div style="position:fixed;top:10px;left:10px;background:#f0f0f0;padding:5px;border-radius:5px;"><a href="'"${rel%.md}.html"'">English</a></div>' "$fa_out"
+    # Fix duplication by only using the file's basename
+    fa_basename=$(basename "${fa_rel%.md}.html")
+    en_basename=$(basename "${rel%.md}.html")
+
+    # Appending the language toggle div right after body tag using the extracted basenames
+    sed -i '/<body>/a <div style="position:fixed;top:10px;right:10px;background:#f0f0f0;padding:5px;border-radius:5px;z-index:9999;"><a href="'"$fa_basename"'">فارسی</a></div>' "$out"
+    sed -i '/<body>/a <div style="position:fixed;top:10px;left:10px;background:#f0f0f0;padding:5px;border-radius:5px;z-index:9999;"><a href="'"$en_basename"'">English</a></div>' "$fa_out"
   fi
   
   echo "✔ Built: $rel"
@@ -144,10 +186,10 @@ while read -r file; do
   has_fa=false
   fa_rel=""
 
-  if [ -f "${file%.md}_fa.md" ]; then
+  if[ -f "${file%.md}_fa.md" ]; then
     has_fa=true
     fa_rel="${rel%.md}_fa.md"
-  elif [ -f "${file%.md}-fa.md" ]; then
+  elif[ -f "${file%.md}-fa.md" ]; then
     has_fa=true
     fa_rel="${rel%.md}-fa.md"
   fi
@@ -169,5 +211,8 @@ echo "Starting multi-core Pandoc build..."
 # -P $(nproc) runs one process per CPU core.
 # Using -t on xargs to print the command before executing
 cat "$FILE_LIST" | xargs -t -I {} -P $(nproc) bash -c 'build_markdown "{}" || exit 255'
+
+# Clean up temporary configuration files
+rm -f .puppeteer.json "$FILE_LIST"
 
 echo "✅ Documentation built successfully at $OUTPUT_DIR"
