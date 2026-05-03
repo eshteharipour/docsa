@@ -21,8 +21,8 @@ RUN apk add --no-cache \
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
-# Install mermaid filter
-RUN npm install -g mermaid-filter
+# Install the official Mermaid CLI
+RUN npm install -g @mermaid-js/mermaid-cli
 
 WORKDIR /docs
 

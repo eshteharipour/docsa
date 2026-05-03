@@ -10,13 +10,58 @@ export OUTPUT_DIR="${OUTPUT_DIR%/}"
 
 mkdir -p "$OUTPUT_DIR"
 
+# =========================================================
+# LUA FILTER: Build-Time SVG Generator
+# Intercepts Mermaid blocks, runs mermaid-cli headless, 
+# and embeds the raw SVG directly into the HTML DOM!
+# =========================================================
+cat > mermaid-to-svg.lua <<'EOF'
+function CodeBlock(block)
+  if block.classes[1] == "mermaid" then
+    -- Generate completely safe unique temp file names for parallel builds
+    local base_tmp = os.tmpname()
+    local tmp_in = base_tmp .. ".mmd"
+    local tmp_out = base_tmp .. ".svg"
+
+    -- Write mermaid code to temp file
+    local f = io.open(tmp_in, "w")
+    f:write(block.text)
+    f:close()
+
+    -- Run official Mermaid CLI quietly
+    local cmd = "mmdc -i " .. tmp_in .. " -o " .. tmp_out .. " -p .puppeteer.json -b transparent > /dev/null 2>&1"
+    os.execute(cmd)
+
+    -- Read the generated SVG
+    local f_svg = io.open(tmp_out, "r")
+    local svg_content = ""
+    if f_svg then
+        svg_content = f_svg:read("*a")
+        f_svg:close()
+    else
+        svg_content = "<p style='color:red;'>[Mermaid Build-Time Rendering Failed]</p>"
+    end
+
+    -- Cleanup temp files
+    os.remove(tmp_in)
+    os.remove(tmp_out)
+    os.remove(base_tmp)
+
+    -- Inject SVG directly into HTML!
+    return pandoc.RawBlock("html", '<div class="mermaid-svg">\n' .. svg_content .. '\n</div>')
+  end
+end
+EOF
+
 # Use exactly the same Pandoc flags you use by hand.
 # -s                produce standalone HTML with head/body
 # -f markdown+hard_line_breaks preserve markdown hard line breaks
 # --filter mermaid-filter render Mermaid diagrams
 # --verbose forces Pandoc to output errors explicitly
-export PANDOC_OPTS="-s -f markdown+hard_line_breaks --filter mermaid-filter --verbose"
+# Pass the custom Lua filter instead of mermaid-filter
+export PANDOC_OPTS="-s -f markdown+hard_line_breaks --lua-filter mermaid-to-svg.lua --verbose"
 
+# Note: Client-side JS removed! SVGs are now rendered at build time natively.
 # Styling added for Inline Code, Codeblocks, Tables, and Vazirmatn Font
 # Using Vazirmatn-Regular.woff2 from CDN for the Persian unicode ranges
 export RTL_STYLE='<style>
@@ -34,8 +79,10 @@ body { text-align: justify; font-family: "MixedFont", serif; font-size: 16px; li
 ol { list-style-type: persian; margin-right: 20px; }
 ul { margin-right: 20px; }
 h1, h2, h3, h4, h5, h6 { text-align: right; }
-.mermaid { direction: ltr; text-align: center; }
-.mermaid img { max-width: 100%; height: auto; } /* Prevents high-res diagrams from overflowing */
+
+/* SVG Direct-Embed Formatting */
+.mermaid-svg { direction: ltr; text-align: center; overflow-x: auto; margin: 20px 0; }
+.mermaid-svg svg { max-width: 100%; height: auto; display: block; margin: 0 auto; } /* Prevents high-res diagrams from overflowing */
 
 /* Table formatting */
 table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; margin: 20px 0; }
@@ -54,8 +101,10 @@ pre code { background-color: transparent; padding: 0; color: inherit; display: i
 export LTR_STYLE='<style>
 body { font-family: "Times New Roman", serif; font-size: 16px; line-height: 1.8; text-align: justify; direction: ltr; }
 h1, h2, h3, h4, h5, h6 { text-align: left; }
-.mermaid { text-align: center; }
-.mermaid img { max-width: 100%; height: auto; }
+
+/* SVG Direct-Embed Formatting */
+.mermaid-svg { text-align: center; overflow-x: auto; margin: 20px 0; }
+.mermaid-svg svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
 
 /* Table formatting */
 table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; margin: 20px 0; }
@@ -71,22 +120,16 @@ pre { background-color: #f6f8fa; border: 1px solid #d0d7de; padding: 16px; borde
 pre code { background-color: transparent; padding: 0; color: inherit; border-radius: 0; }
 </style>'
 
-# Create a Puppeteer config to instruct mermaid-filter to generate high-res (3x) images
-# AND allow it to run as root in Docker
+# Create a Puppeteer config to allow Chrome to run as root in Docker
 cat > .puppeteer.json <<'EOF'
 {
-  "args": ["--no-sandbox", "--disable-setuid-sandbox"],
-  "defaultViewport": {
-    "width": 800,
-    "height": 600,
-    "deviceScaleFactor": 3
-  }
+  "args":["--no-sandbox", "--disable-setuid-sandbox"]
 }
 EOF
 
 # Set up automatic cleanup of temporary configurations to safely run even on failures
 FILE_LIST=$(mktemp)
-trap 'rm -f .puppeteer.json "$FILE_LIST"' EXIT
+trap 'rm -f .puppeteer.json mermaid-to-svg.lua "$FILE_LIST"' EXIT
 
 # =========================================================
 # AWK PREPROCESSOR: Fix missing empty lines before lists & tables
