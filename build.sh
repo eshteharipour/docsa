@@ -1,8 +1,10 @@
 #!/bin/bash
 set -eo pipefail
 
-export DOCS_SRC="/docs"
-export OUTPUT_DIR="/htmls"
+# Allow overriding paths and behaviors via Environment Variables
+export DOCS_SRC="${DOCS_SRC:-/docs}"
+export OUTPUT_DIR="${OUTPUT_DIR:-/htmls}"
+export SKIP_AUTO_INDEX="${SKIP_AUTO_INDEX:-false}"
 
 # Safety: Strip any accidental trailing slashes so path math never breaks
 export DOCS_SRC="${DOCS_SRC%/}"
@@ -221,8 +223,32 @@ while read -r txt_file; do
   cp "$txt_file" "$OUTPUT_DIR/$rel"
 done < <(find "$DOCS_SRC" -type f \( -name "*.csv" -o -name "*.json" -o -name "*.yml" \) -print)
 
-# --- Build index.html skeleton ---
-cat >"$OUTPUT_DIR/index.html" <<'EOF'
+# =========================================================
+# GATHER FILES AND BUILD THE INDEX LIST
+# =========================================================
+
+# Extract a unique list of "Base Paths" (ignoring -fa, _fa, and .md extensions)
+while read -r file; do
+  base="${file%.md}"
+  base="${base%_fa}"
+  base="${base%-fa}"
+  echo "$base"
+done < <(find "$DOCS_SRC" -type f -name "*.md" -print) | sort -u > "$FILE_LIST"
+
+# Determine if we should generate the index
+# Logic: Skip if index already exists OR if SKIP_AUTO_INDEX=true OR if only 1 doc exists
+GENERATE_INDEX=true
+if [[ -f "$DOCS_SRC/index.md" ]] || [[ -f "$DOCS_SRC/index_fa.md" ]] || [[ -f "$DOCS_SRC/index-fa.md" ]]; then
+    GENERATE_INDEX=false
+elif [[ "${SKIP_AUTO_INDEX,,}" == "true" ]]; then
+    GENERATE_INDEX=false
+elif [[ $(wc -l < "$FILE_LIST") -le 1 ]]; then
+    GENERATE_INDEX=false
+fi
+
+if [[ "$GENERATE_INDEX" == "true" ]]; then
+    # --- Build index.html skeleton ---
+    cat >"$OUTPUT_DIR/index.html" <<'EOF'
 <!DOCTYPE html>
 <html>
 <head>
@@ -254,6 +280,35 @@ docs.forEach(d=>{
 </body>
 </html>
 EOF
+
+    DOC_LIST="["
+    FIRST=true
+    while read -r base_path; do
+      rel_base="${base_path#$DOCS_SRC/}"
+      has_en=false
+      [[ -f "${base_path}.md" ]] && has_en=true
+      has_fa=false
+      fa_rel=""
+      if [[ -f "${base_path}_fa.md" ]]; then
+        has_fa=true
+        fa_rel="${rel_base}_fa.html"
+      elif [[ -f "${base_path}-fa.md" ]]; then
+        has_fa=true
+        fa_rel="${rel_base}-fa.html"
+      fi
+      [ "$FIRST" = true ] || DOC_LIST+=","
+      FIRST=false
+      if [[ "$has_en" == true ]]; then
+        # Standard Doc (English, with optional FA twin)
+        DOC_LIST+="{\"name\":\"$rel_base\",\"path\":\"${rel_base}.html\",\"hasFA\":$has_fa,\"faPath\":\"$fa_rel\"}"
+      elif [[ "$has_fa" == true ]]; then
+        # Standalone Persian Doc
+        DOC_LIST+="{\"name\":\"$rel_base (FA Only)\",\"path\":\"$fa_rel\",\"hasFA\":false,\"faPath\":\"\"}"
+      fi
+    done < "$FILE_LIST"
+    DOC_LIST+="]"
+    sed -i "s|DOC_LIST_PLACEHOLDER|$DOC_LIST|" "$OUTPUT_DIR/index.html"
+fi
 
 # =========================================================
 # DEFINE THE PARALLEL BUILD FUNCTION
@@ -332,54 +387,6 @@ build_markdown() {
   echo "✔ Built base: $rel_base"
 }
 export -f build_markdown
-
-# =========================================================
-# GATHER FILES AND BUILD THE INDEX LIST
-# =========================================================
-
-# Extract a unique list of "Base Paths" (ignoring -fa, _fa, and .md extensions)
-while read -r file; do
-  base="${file%.md}"
-  base="${base%_fa}"
-  base="${base%-fa}"
-  echo "$base"
-done < <(find "$DOCS_SRC" -type f -name "*.md" -print) | sort -u > "$FILE_LIST"
-
-# Iterate over base paths to generate the JSON index list
-DOC_LIST="["
-FIRST=true
-
-while read -r base_path; do
-  rel_base="${base_path#$DOCS_SRC/}"
-  
-  has_en=false
-  [[ -f "${base_path}.md" ]] && has_en=true
-  
-  has_fa=false
-  fa_rel=""
-  
-  if [[ -f "${base_path}_fa.md" ]]; then
-    has_fa=true
-    fa_rel="${rel_base}_fa.html"
-  elif [[ -f "${base_path}-fa.md" ]]; then
-    has_fa=true
-    fa_rel="${rel_base}-fa.html"
-  fi
-  
-  [ "$FIRST" = true ] || DOC_LIST+=","
-  FIRST=false
-  
-  if [[ "$has_en" == true ]]; then
-    # Standard Doc (English, with optional FA twin)
-    DOC_LIST+="{\"name\":\"$rel_base\",\"path\":\"${rel_base}.html\",\"hasFA\":$has_fa,\"faPath\":\"$fa_rel\"}"
-  elif [[ "$has_fa" == true ]]; then
-    # Standalone Persian Doc
-    DOC_LIST+="{\"name\":\"$rel_base (FA Only)\",\"path\":\"$fa_rel\",\"hasFA\":false,\"faPath\":\"\"}"
-  fi
-done < "$FILE_LIST"
-
-DOC_LIST+="]"
-sed -i "s|DOC_LIST_PLACEHOLDER|$DOC_LIST|" "$OUTPUT_DIR/index.html"
 
 # =========================================================
 # RUN THE PARALLEL BUILD

@@ -35,6 +35,10 @@ COPY ./docs/ /docs/
 # Handled in build.sh
 # RUN echo '{"args": ["--no-sandbox", "--disable-setuid-sandbox"]}' > /docs/.puppeteer.json
 
+# Accept build argument and pass it to the environment for build.sh
+ARG SKIP_AUTO_INDEX=false
+ENV SKIP_AUTO_INDEX=${SKIP_AUTO_INDEX}
+
 # Override the default Pandoc entrypoint to run the build script.
 ENTRYPOINT ["/bin/bash"]
 RUN /build.sh
