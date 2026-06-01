@@ -26,7 +26,7 @@ ENV DOCS_SRC=/docs \
     OUTPUT_DIR=/output \
     SKIP_AUTO_INDEX=false
 
-COPY docsa/build.sh /usr/local/bin/build.sh
+COPY build.sh /usr/local/bin/build.sh
 RUN chmod +x /usr/local/bin/build.sh
 
 # The container will naturally run build.sh when launched
