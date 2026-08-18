@@ -86,6 +86,12 @@ h1, h2, h3, h4, h5, h6 { text-align: right; }
 .mermaid-svg { direction: ltr; text-align: center; overflow-x: auto; margin: 20px 0; }
 .mermaid-svg svg { max-width: 100%; height: auto; display: block; margin: 0 auto; } /* Prevents high-res diagrams from overflowing */
 
+/* Markdown images */
+img { max-width: 100%; height: auto; }
+figure { margin: 20px 0; text-align: center; }
+figure img { display: inline-block; }
+figcaption { font-size: 0.9em; color: #57606a; margin-top: 8px; }
+
 /* Table formatting */
 table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; margin: 20px 0; }
 table th, table td { border: 1px solid #d0d7de; padding: 10px 14px; }
@@ -107,6 +113,12 @@ h1, h2, h3, h4, h5, h6 { text-align: left; }
 /* SVG Direct-Embed Formatting */
 .mermaid-svg { text-align: center; overflow-x: auto; margin: 20px 0; }
 .mermaid-svg svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+
+/* Markdown images */
+img { max-width: 100%; height: auto; }
+figure { margin: 20px 0; text-align: center; }
+figure img { display: inline-block; }
+figcaption { font-size: 0.9em; color: #57606a; margin-top: 8px; }
 
 /* Table formatting */
 table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; margin: 20px 0; }
@@ -215,13 +227,18 @@ END {
 }
 '
 
-# --- Copy text files (.csv, .json, .yml) safely ---
-while read -r txt_file; do
-  rel="${txt_file#$DOCS_SRC/}"
+# --- Copy static assets (images + data files) so HTML can reference them ---
+while read -r asset_file; do
+  rel="${asset_file#$DOCS_SRC/}"
   out_dir="$OUTPUT_DIR/$(dirname "$rel")"
   mkdir -p "$out_dir"
-  cp "$txt_file" "$OUTPUT_DIR/$rel"
-done < <(find "$DOCS_SRC" -type f \( -name "*.csv" -o -name "*.json" -o -name "*.yml" \) -print)
+  cp "$asset_file" "$OUTPUT_DIR/$rel"
+done < <(find "$DOCS_SRC" -type f \( \
+  -iname "*.csv" -o -iname "*.json" -o -iname "*.yml" -o -iname "*.yaml" \
+  -o -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.gif" \
+  -o -iname "*.svg" -o -iname "*.webp" -o -iname "*.ico" -o -iname "*.bmp" \
+  -o -iname "*.avif" -o -iname "*.tif" -o -iname "*.tiff" \
+\) -print)
 
 # =========================================================
 # GATHER FILES AND BUILD THE INDEX LIST
